@@ -1,0 +1,91 @@
+CREATE OR alter PROCEDURE process_daily_files(
+    Exchangefilepath IN VARCHAR2,
+    Depositoryfilepath IN VARCHAR2
+) IS
+BEGIN
+    -- Clean previous day data
+    DELETE FROM exchange_stock_ownership_stg;
+    DELETE FROM depository_stock_ownership_stg;
+    DELETE FROM stock_ownership_comparison_log;
+    COMMIT;
+
+    -- Load new Exchange data into staging table
+    load_csv_into_table(Exchangefilepath, 'exchange_stock_ownership_stg');
+
+    -- Load new Depository data into staging table
+    load_csv_into_table(Depositoryfilepath, 'depository_stock_ownership_stg');
+
+    -- Insert matches into comparison log
+    INSERT INTO stock_ownership_comparison_log (
+        user_id, stock_id, stock_name, exchange_count, depository_count,
+        match_status, mismatch_reason
+    )
+    SELECT
+        e.user_id, e.stock_id, e.stock_name,
+        e.stock_count, d.stock_count,
+        'MATCH', NULL
+    FROM
+        exchange_stock_ownership_stg e
+        INNER JOIN depository_stock_ownership_stg d
+        ON e.user_id = d.user_id AND e.stock_id = d.stock_id
+    WHERE
+        e.stock_count = d.stock_count;
+
+    -- Insert mismatches where quantity differs
+    INSERT INTO stock_ownership_comparison_log (
+        user_id, stock_id, stock_name, exchange_count, depository_count,
+        match_status, mismatch_reason
+    )
+    SELECT
+        e.user_id, e.stock_id, e.stock_name,
+        e.stock_count, d.stock_count,
+        'MISMATCH', 'Stock quantity mismatch'
+    FROM
+        exchange_stock_ownership_stg e
+        INNER JOIN depository_stock_ownership_stg d
+        ON e.user_id = d.user_id AND e.stock_id = d.stock_id
+    WHERE
+        e.stock_count <> d.stock_count;
+
+    -- Insert mismatches where stock is missing in Exchange data
+    INSERT INTO stock_ownership_comparison_log (
+        user_id, stock_id, stock_name, exchange_count, depository_count,
+        match_status, mismatch_reason
+    )
+    SELECT
+        d.user_id, d.stock_id, d.stock_name,
+        NULL, d.stock_count,
+        'MISMATCH', 'Missing in Exchange data'
+    FROM
+        depository_stock_ownership_stg d
+        LEFT JOIN exchange_stock_ownership_stg e
+        ON d.user_id = e.user_id AND d.stock_id = e.stock_id
+    WHERE
+        e.user_id IS NULL;
+
+    -- Insert mismatches where stock is missing in Depository data
+    INSERT INTO stock_ownership_comparison_log (
+        user_id, stock_id, stock_name, exchange_count, depository_count,
+        match_status, mismatch_reason
+    )
+    SELECT
+        e.user_id, e.stock_id, e.stock_name,
+        e.stock_count, NULL,
+        'MISMATCH', 'Missing in Depository data'
+    FROM
+        exchange_stock_ownership_stg e
+        LEFT JOIN depository_stock_ownership_stg d
+        ON e.user_id = d.user_id AND e.stock_id = d.stock_id
+    WHERE
+        d.user_id IS NULL;
+
+    -- Final commit
+    COMMIT;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Rollback any changes if there are errors
+        ROLLBACK;
+        RAISE; --this statement ensures that the exception is propagated and not just quietly handled.
+END process_daily_files;
+/

@@ -1,0 +1,28 @@
+-- Staging table for Exchange data
+CREATE TABLE exchange_stock_ownership_stg (
+    user_id     NUMBER,
+    stock_id    VARCHAR2(20),
+    stock_name  VARCHAR2(100),
+    stock_count NUMBER
+);
+
+-- Staging table for Depository data
+CREATE TABLE depository_stock_ownership_stg (
+    user_id     NUMBER,
+    stock_id    VARCHAR2(20),
+    stock_name  VARCHAR2(100),
+    stock_count NUMBER
+);
+
+-- Comparison log table
+CREATE TABLE stock_ownership_comparison_log (
+    log_id           NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id          NUMBER,
+    stock_id         VARCHAR2(20),
+    stock_name       VARCHAR2(100),
+    exchange_count   NUMBER,
+    depository_count NUMBER,
+    match_status     VARCHAR2(20), -- 'MATCH' or 'MISMATCH'
+    mismatch_reason  VARCHAR2(255),
+    log_date         DATE DEFAULT SYSDATE
+);
